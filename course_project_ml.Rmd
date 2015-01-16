@@ -1,0 +1,138 @@
+---
+title: 'Practical Machine Learning: Course Project'
+output: html_document
+---
+
+## Synopsis
+
+The aim of this analysis is to predict in which of five ways a barbell was lifted by subjects. Several machine learning models are estimated, and the best one is selected using cross validation.
+
+I find that a quadratic discriminant analysis (QDA) model fits the data quite nicely, yielding an estimated 90% out-of-sample accuracy. This winning algorithm achieves a 95% accuracy on the test set.
+
+## Analysis
+
+### Reading and cleaning the data
+
+Let us start by reading in the data.
+
+```{r}
+# url.train = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+# url.test = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+# download.file(url.train, "cp1_train.csv")
+# download.file(url.test, "cp1_test.csv")
+d.train = read.csv("cp1_train.csv", na.strings=c("", "NA", "#DIV/0!"))
+d.test = read.csv("cp1_test.csv", na.strings=c("", "NA", "#DIV/0!"))
+```
+
+Quite a few variables in the test set are all NAs. You can see this running `summary(d.test)`. I'd like to get rid of these variables from both data sets because they're going to be useless for evaluating a model on the test set.
+
+```{r}
+n.testobs = nrow(d.test)
+to.delete = c()
+
+for (col in 1:ncol(d.test)) {
+    if (sum(is.na(d.test[, col])) == n.testobs) {
+        to.delete = c(to.delete, col)
+    }
+}
+
+d.train = d.train[, -to.delete]
+d.test = d.test[, -to.delete]
+```
+
+Let me also get rid of some other useless-looking variables.
+
+```{r}
+to.delete = 1:7
+d.train = d.train[, -to.delete]
+d.test = d.test[, -to.delete]
+```
+
+### Fitting models
+
+In this section, we'll fit some models to the data, which will then be all tested to choose the best.
+
+#### Linear discriminant analysis with all predictors
+
+Let's start with a linear discriminant analysis model containing all predictors. I use 5-fold cross validation to select the best model.
+
+```{r}
+library(caret)
+control = trainControl(method="cv", number=5)
+fit1.lda = train(classe ~ ., method="lda", trControl=control, data=d.train)
+```
+
+The accuracy in the folds of the cross validation hovers around 70% as seen below.
+
+```{r}
+fit1.lda$resample
+```
+
+I would thus estimate the out-of-sample error to be one minus the mean of these accuracies, which is `r 1-mean(fit1.lda$resample[, "Accuracy"])`.
+
+#### Linear discriminant analysis with principal components
+
+Let us now use the principal components of the data to predict the outcome.
+
+```{r}
+fit2.pca = train(classe ~ ., method="lda", preProcess="pca", data=d.train,
+                 trControl=control)
+```
+
+The accuracy is lower in this case. The mean across the five folds is `r mean(fit2.pca$resample[, "Accuracy"])`, yielding an estimated OOS error of `r 1-mean(fit2.pca$resample[, "Accuracy"])`.
+
+```{r}
+fit2.pca$resample
+```
+
+#### Quadratic discriminant analysis with all predictors
+
+Next, I tried a quadratic discriminant model with all predictors as is.
+
+```{r}
+fit3.qda = train(classe ~ ., method="qda", data=d.train, trControl=control)
+```
+
+This provided a greatly improved accuracy, with an estimated out-of-sample error of only `r 1-mean(fit3.qda$resample[, "Accuracy"])`.
+
+```{r}
+fit3.qda$resample
+```
+
+*Note*: I didn't fit a random forest model because it was taking way too long (or my computer's too slow), and the accuracy of the QDA model is already something I'm quite satisfied with.
+
+### Predictions
+
+The models have the following predictions for the test set.
+
+```{r}
+predict(fit1.lda, d.test)
+predict(fit2.pca, d.test)
+predict(fit3.qda, d.test)
+```
+
+Using the function given in the course project's second part to save the predictions of my best model (quadratic disciminant analysis) in individual `.txt` files, I submitted the predictions to the auto-grader.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_", i, ".txt")
+    write.table(x[i], file=filename, quote=FALSE, row.names=FALSE,
+                col.names=FALSE)
+  }
+}
+
+answers = predict(fit3.qda, d.test)
+pml_write_files(answers)
+```
+
+The auto-grader indicated that 95% of my predictions (19/20) were correct, which is in good agreement with the estimated 90% out-of-sample accuracy.
+
+Unfortunately, when I did this I didn't set the random number seed. So if you repeat this analysis, you may get a slightly different accuracy.
+
+## Conclusion
+
+Out of the models I tried, the QDA model was the best with around 90% estimated OOS accuracy, and 95% test set accuracy.
+
+I looked at tree-based models but had two problems: (1) regular tree models have terrible accuracy in the training set (~50%), (2) "tweaked" tree models such as random forests take way too long to fit and I didn't have time/patience/a good enough machine.
